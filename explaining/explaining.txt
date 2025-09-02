@@ -1,0 +1,507 @@
+--> batch_size is how many independent sequences to generate
+You can call batch_size like # of independent responses from model/transformer
+Think of it as parallel generation jobs.
+
+During training:
+batch_size = number of input sequences processed together in one forward/backward pass
+batch_size is the number of independent input sequences used to compute the loss in one training step.
+If batch_size = 4, you’re feeding 4 independent sequences (say, 4 different pieces of text) into the model at once.
+
+During Inference / Generation:
+batch_size = number of prompts being handled in parallel
+
+how many sequences or independent examples do we want to generate that's just the batch size
+
+--> context_length is how many tokens back the token can read (i.e., its attention window)
+It is the maximum number of tokens the model can attend to at once, including:
+The input prompt tokens
+Plus the generated tokens so far
+Think of it as the model’s attention window or memory. It can't "see" anything beyond this window.
+
+Let’s say:
+context_length = 2048
+Prompt = "Once upon a time..." → Let's say this is 500 tokens after tokenization
+You're generating new tokens from the model
+
+Now:
+The first token the model generates can attend to all 500 tokens of the prompt.
+As it keeps generating, say, 100 tokens... then 200... then 1000...
+Once the total number of tokens (prompt + generated) hits 2048:
+The model can't see the earliest tokens anymore (they're out of its context window).
+So, in practice:
+You can generate more than 1548 tokens, but only the most recent 2048 tokens (prompt + output) are visible to the model at any point.
+This is like a sliding window — old tokens fall off the "left edge" of the context.
+
+we're given some sort of string which is just the raw data set that's before we're going to do any processing on this actually creating the examples.
+we're also given something called context length and this is actually how many tokens back can the model factor in into its response back to you 
+so where how far back is it actually taking into account how many tokens back can it quote unquote read and this is also going to be the length of each training example
+it's going to be of length capital t which represents the context size each training example
+
+-->Context Window
+Defined by context length (T)—the model only “remembers” T tokens back.
+Example: with “hello darkness my old friend”, T=3, choosing "darkness" start yields "darkness my old"; expected next tokens are "my", "old", "friend".
+
+--> GPT-style models are trained to predict the next token (character, word, or subword) given a sequence.
+Building a batch_loader function:
+Inputs:
+Corpus as a string
+Context length (T, number of prior tokens to attend to)
+Batch size (B, number of sequences per batch)
+Outputs:
+X: B × T tensor of token sequences
+Y: corresponding true next tokens
+
+--> # Generate a tensor of shape (3, 4) with random integers from 0 to 9
+rand_tensor = torch.randint(0, 10, (3, 4))  #in our case, size can be (batch_size,)
+print(rand_tensor)
+output:tensor([[6, 2, 8, 1],
+        [3, 0, 7, 4],
+        [9, 2, 1, 5]])
+Use torch.randint(low=0, high=#words − T, size=(B,))
+Ensures each sampled start index leaves enough room for the full context length        
+
+--> Averaging:
+we have this tensor that is t by t so t is four in this case right if it's write me a poem that's four tokens so we have a t by t tensor 
+that it's going to multiply against the t by c tensor and this is going to help us end up with a t by c tensor again
+first time step first time token it looks like it doesn't get averaged or added anything else into it it just kind of gets scaled with a 
+factor of 1/4 for both the entries in the two embedding dimensions we have then for the second time step we can see that 
+we get the we essentially are taking 1/4 times what came before it and also 1/4 with what we currently have and we can see the same thing being done here 
+1/4 of e12 which is essentially what came before it especially and then we add in 1/4* e22 which is exactly what was there and this is essentially that running weighted average
+you were say adding everything up and then dividing by four that's kind of what a running average would be doing right we can essentially just distribute that 1/4 to each to each number that's being averaged right so just to make this
+super clear here we have 1/4 * e11 here we have 1/4 * e11 plus 1/4 * e21 so that's kind of averaging right and me and then here we have 1/4 * e11 plus 1/4 1/4 * e21 plus 1/4 * e31 so this is kind of the average of write me a right 
+as we get more words and more further along into the sentence we get more and more context
+
+--> Why averaging isnt that good?
+First, we convert tokens into vectors where they link to each other and one way is by taking average of all tokens ,so it will be B*T*C
+if we have prompt: write me a poem
+Then, B=1(becuase we have only one sequence),T=4(four tokens) and C: embedding_dimension(say 2)
+then,we said instead of B*T*C,it will be T*C
+he then multiplied T*T vector(Weights of tokens) with T*C vector(embeddings) which had dimensions (4,4) and (4,2)
+ANd then calculated T*C
+AND in end,averaging isnt a good idea because link of 'write" with 'poem' should be stronger than link of 'poem' with 'me' and 'a' 
+Weights should be different and we use embedding for that reason
+
+
+--> self-attention layer has T*T matrix of weights and biases
+T*T scores = softmax(Q*(K.transpose)/sqrt(dK))
+
+Layer output(attention scores) = scores @(matmul) V
+
+--> A character-level language model is a type of language model that operates on individual characters rather than words or other units of text. 
+It predicts the next character in a sequence based on the preceding characters, essentially generating text character by character. 
+It’s a model that:Takes characters as input,Predicts the next character, one at a time
+for example, prompt='hel',its first input is 'h',then 'e' and then 'l'
+Its output /prediction is also  one character like 'e', 'l' and 'p'
+
+-->  we are gonna have to every token emit querry vector and that vector is gonna be of size attention_dim
+so, nn.Linear(embedding_dim,attention_dim)    #for queries of each token
+And, embedding_dim is gonna be input bcz before even generating queries , we kknwo that for every token, we have a vector of size embedding_dim
+And, attention_dim is gonna be output bcz every token is gonna emit querry vector of size attention_dim and that represent what the token is looking for, what's its querry
+And, every token is also going to emit a key vector of size attention_dim for each token representing the info that it has .THis will also be generated using a linear layer
+which of course has you know those trainable w's and biases
+And, then we can match up with querry vector with key vector of same token
+
+--> querry matrix is of size (T*A) and same for key vector
+we're going to multiply that queery matrix by key transpose so we have that one that matrix over here that one instead of being t by a because we've transposed it 
+it would be a by t and that's going to be the key vector for every token so here each row is the query and here each column because we transposed the matrix meaning 
+we flipped its rows and columns and essentially put the matrix on its
+side so to speak we have the columns here being the keys the right key me key a key poem key and then when we think about what this matrix multiplication is doing is 
+we have the query for write kind of dotproducted with the query or the key for write and then we have the query for write.producted with the key for me and then we have the query for write.
+producted with the key for a and we have the query for right dotproducted with the key for poem and the same thing is kind of done for every other query right all the queries and and keys 
+kind of get dotproducted and if you recall the dotproduct dotproduct operation from linear algebra the dotproduct operation is supposed to be a measure of how similar two vectors are to each other
+
+--> Dot product and matchups:
+every vector is emitting a query and every vector is emitting a key well if we dotproduct them that's kind of like saying okay if this is a gauge for how similar they are to each other 
+then the tokens whose queries and keys match up maybe the query for write matches up with the key for poem or using the character example we talked about earlier maybe the query for q matches up with the key for u if
+those match up then we can say those tokens are important to each other and we would have a higher number coming out of the dotproduct 
+we can actually see that the t by a multiplied by the a by t would give us that t byt tensor which we were looking for
+so q * k transpose specifically q which is the output of that trained linear layer k which is the output of the trained key linear key
+layer gives us this t byt attention scores which we were looking for all along
+When two vectors point in the same direction → angle is small → cos(θ) ≈ 1 → dot product is large
+Word embeddings: "king" and "queen" should have high dot product
+In vector space, similar meanings → similar directions
+Query ⋅ Key → higher dot → stronger attention weight (talking about querry and key of each token or character)
+
+--> softmax func:
+softmax as a multi-dimensional sigmoid so it'll squash everything to be between 0 and one
+the way the formula works the way it kind of raises everything to the power of e and that's to make it positive by the way and not negative anymore and 
+then we divide by the sum of the entire vector not only does it squash everything to be between 0 and 1 but it'll make everything sum to one so all of these numbers will now sum to one
+on our t byt tensor of attention scores what we do when we apply softmax is every row is now going to be between 0 and one and every row sums to one so we can kind of think of it as given the say a given row which 
+corresponds for a given token and then all the columns going left to right if those sum to one we can kind of think of those as scores or maybe even probabilities that that token might be relevant to the token corresponding to the row
+softmax(Zi)= (e^Zi)/∑ j=1 to n (e^Zj) 
+
+--> Value vector:
+so in addition to how every token will emit a query and a key every token is also going to emit a value and this is going to be another vector of size dim at or attention dim that every vector is going to emit and
+it will be learned and trained with a linear layer and the reason we do this is to just kind of add another level of complexity to the model
+because 
+if the query is what the token is searching for 
+if the key is what the token actually has 
+and well let's say the value is actually what is the token actually willing to share because there are various pieces of information associated with every token right that's in the key but the value not the q not the k but now 
+the v the value is what information is actually relevant what information do i emit in my vector do i actually want to
+share or we don't necessarily want to share the entire unmasked input right like doing t by t scores times the input instead we'll multiply it by v where v will be learned so then the model can actually learn okay 
+for the token for every token what information is actually relevant to share with the other tokens so that would be the value what the token is looking for is the query what information the token has which 
+should be kind of matching up with the queries for other tokens is the key and what information it's actually willing to share is the value
+
+
+--> why sqrt(Dk):
+so the last thing we need to explain is why are we why do we divide by the square root of dk before we applied softmax where dk is the attention dim
+researchers kind of experiment around with different scale factors we're just dividing by the square root of dk which is a single
+number here no matrix multiplication or matrix divisions or anything like that but often neural networks can suffer from something called an exploding gradient or a vanishing gradient where the values of the derivatives during training 
+get either way too big or way too small and things kind of become unfeasible so it's often better to kind of scale down or scale up our values by some sort of scale factor which is exactly what we're doing here and the
+researchers who created self- attention they were researchers at google in 2017 they actually found that this achieved far better results and it's kind of become standard when coding up self- attention
+​
+--> Attention layer and next token prediction: 
+the input that we pass into these gpts during training it's actually just a sequence of tokens or words and there's actually many training examples embedded within even one sentence 
+this model during training is just learning to predict the next token over and over again given a bunch of contexts o in this sentence if we were to say pass this in during training as one of our sentences in a batch the model can actually learn 
+that given a context of write me comes next given a context of write me a comes next given a context of write me a poem comes next so as information is actually flowing through this neural network all culminating in the model's prediction 
+for the next token which we'll talk about this later but it ends up being a bunch of probabilities a bunch of probabilities for all the possible next tokens and then we may do something like take the highest probability or we might do something 
+more complicated just depending on the scenario there's many neural network layers that factor in to the model's prediction of what is the next token in the sequence and one of the most important layers within 
+this neural network that helps the model achieve that is the attention layer
+ 
+-->Embedding:
+given a a vector or a sequence of tokens of length t here we can say with write me a poem capital t equals 4 for every token we're going to get an embedding or feature vector which should encapsulate the meaning of that word of or of that token and
+this is actually learned through training through gradient descent  and let's say our embedding dimension that we choose is capital e now our input of size capital t has now become t by e if
+for every token we have a vector of size e and this t by e tensor is what's going to be fed in to the attention layer over here and what the attention layer outputs is actually something of size t by a where a a is not the embedding dim but actually the attention dim
+
+-->Embeddings and self Attention:
+we can see that for every single token we have a different vector ,now in this vector may or may not be of the same size depending on whether or not a equals e but that's actually not the important thing the important thing is that this transformed vector that 
+we have for every token now contains a slightly different piece of information it actually is now a transformed version of the vector that encapsulates what the model needs to attend to or focus on what's actually important for the model to pay attention to that's where
+the term self-attention comes from and this transformed vector the way that the self- attention layer works inside here the way we're generating this vector of what the model should pay attention to for every token is actually by aggregating information from the other tokens
+​so let's say the model has now a new representation for the word me well the model has factored in everything that came before me factored in all those other tokens and aggregated that information together to have a new
+transformed representation of this token which represents what the model actually needs to pay attention to
+​
+the forward method will return a batch size by context length context length is the capital t that i was just talking about by attention dim
+tensor and we can see that the input dimensionality is actually the embedding dim so the input would be b by t by capital e and we're also given the attention dim which is like the capital a that i was just talking about people also call this the head size
+​and then third input that we receive is the actual b by t by embedding dim tensor which is the input to the forward method for this self attention layer
+ 
+ --> Self attention class:
+self attention class which will simply be used as a layer later on in the gpt class just like nn.linear,so,In the constructor for the self attention class we'll define the relevant you know the instance variables and the layers that make up the self attention class and
+then the forward method for self attention will be just like getting the model's prediction for that layer passing in the b by t by e input into that layer and it returns the b by t by attention dim tensor
+​                      
+                             see: self_attention.png
+
+self attention layer: input vector BxTxE .. output vector BxTxA
+while B= batch_size(how many sequences to train in parallel),T=context_length,E=embedding_dim,A=attention_dim
+
+--> TxE:
+let's just say b equals 1 so that we are only dealing with one example at a time we're not processing like other sentences in parallel in this batch so t equals 3 if we're doing a word level breakdown of the sentence and let's say e equals 2 so every token would be represented 
+with a vector of size 2 and this is our input x that is kind of that t by e tensor that is fed into the attentions forward method and we can see that the first row is for dog the second row is for the word is and the third row
+is for the word cute so let's say we had these embeddings learned by the model
+
+--> How self attention works and TxT?
+so then the way self attention works the way it actually then represents or generates this this new tensor of size t by a where now we have this transform vector which has the important information for the model to look at for every single token, the way that is generated 
+is the model considers a t by t or it actually generates a t by t tensor so this you can think of this as a tensor of scores or weights right if we have t tokens and we look at a t byt tensor then that is like t squared entries right so we're considering 
+every single pair of tokens every single possible pair of words and we're matching them up and in this tensor if you were to index it at say row i column j 
+The way we're going to make these numbers(weights in TxT) be between zero and one is we're actually going to interpret that as a score of how important those words are to each other in the sentence so in the sentence like dog is cute you might imagine that 
+for the row for dog and the column for cute we might have like a really high number cuz cute is important for describing the word dog in that sentence so this would be like a number or a score between 0 and one ,one being more important ,zero being not important to each other at all 
+and this is going to be a t-squed sized tensor which contains the scores for every single pair of tokens and how important they are to each other how strong and of association do they have with each other and how important are those pair of tokens for actually 
+understanding and processing the meaning of the input
+
+--> Masking in self attention and TxT:
+let's assume that the model did generate this t by t tensor for the input dog is cute and let's just understand what's in this tensor so we can see the row one column one dog and dog has some like relation to each other right it's the same word so 
+i just put the same number 0.7 because obviously a word is important to itself right that these diagonal entries are kind of meaningless but the model will still learn some sort of number for those entries the more important entries to focus on are the ones not on this diagonal 
+so we can see that for road dog the future tokens that come after dog like is and cute are actually completely zeroed out and this is intentional and you may have heard of something called masking in self attention it's okay if you haven't heard that term before but 
+essentially what this means is if the whole goal of these models is to predict the next token in the sequence then we shouldn't be letting the model during training look at those future tokens if the goal is to predict that is cute comes after dog then why would 
+we let the model look at these future tokens we're completely going to zero out those attention scores instead for every single token at every single time step we only let the model see the current time step and everything that came before it so if we look at the
+second row which is for is we can see that the word that came before it dog 0.5 right it has some importance to the word is dog and is obviously it's kind of like a helping verb in this sentence but not maybe not like crazy important then obviously is is important to itself and 
+then we don't like let the model look at the future token of cute which comes after is this is a really important entry in the matrix though
+comes before cute right so for the row cute we're considering all the other tokens that came before it up to and including cute and we see a really high number here this makes sense right cute is actually the adjective describing dog in the sentence for the model to truly 
+understand the language and meaning of this sentence the model needs to realize that these this pair of tokens dog and cute are very strongly associated with each other hence the value of 0.9 and then of course maybe 0.5 for is bcz its just a helping verb that kind of links dog and cute 
+so we just have a 0.5 there so we'll talk about how the model generates this t byt tensor that's one of the biggest parts of coding up the self attention class in a bit but we just want to understand the whole value of having this tt tensor first so now let's explain 
+how the model uses this t by t tensor to actually get the output here's on the right is going to be the output of the self attention forward method
+
+--> TxA generation:
+Matrix multiplication of Txt and TxE gives TxA given here E=A,So, the words in plotting have shifted a bit from before as TxE is transformed into TxA
+         
+                            See: TxA_generation.png
+
+--> Self attention formula(Querry,Key,Scaling factor,Value,Sigmoid):
+so how is that tensor of t byt scores actually generated if you look up the formula for self- attention you're going to see something like this which seems a little ugly but it actually has an intuitive understanding or an intuitive explanation so we said we
+wanted to consider every single pair of tokens and how important they are to each other well the way the model achieves that is by actually breaking down these you know invisible barriers between the tokens and now instead of processing the tokens independently,
+it starts letting the tokens talk to each other attention is actually a communication mechanism between words and that sounds a little crazy at first but what i actually mean by that is that for every single token in the sentence we're going to emit two vectors 
+the model is going to generate and learn two vectors for every single token and one of those vectors is called q for query and one of those vectors is called k for key and the query actually represents what the token is searching for or querying for i am a token 
+so the token is talking to other tokens it's generating a query vector and the token is saying "okay i am a token here is what i am looking for if you if you meet me hopefully if you meet what i'm looking for my criteria hopefully we can meet up and 
+then get a high number or a high score together in this tensor." so what i actually mean by that is a noun might be searching for an adjective to describe itself so the query for dog this vector might have similar information that is actually embedded in
+the vector for cute because we know that is the adjective that describes dog so we're actually going to look at all these queries and keys and see which ones match up so the if the query is what information the token is searching for and 
+that is emitted by every single token then the key vector the key vector emitted by every single token represents what information that it actually has what information does that token actually contain so the query for dog might match up with the key for cute 
+since we know that this is a noun we know this is an adjective maybe they're looking for each other so every single token is going to generate a key and a query so if for every single token we have a vector and that vector will be of size attention dim
+then the query tensor or the query matrix is t by a same thing for the key matrix or the keys that would be t by a so then if we actually multiplied q * k transpose 
+ee like the row for a query being multiplied with a column in
+k or k transpose you'll see that that's literally aligning the queries and keys because we want to see which queries and keys actually match up right we want the queries for maybe say a dog to match up or actually align up with the vector that 
+represents the key for cute and then that dotproduct of those two vectors is some sort of number that's stored at entry i j in this t by t tensor where  i corresponds to cute and j corresponds to to dog right 
+it would actually be the row for cute and the column for dog and then that would that number that dotproduct of say that query and that key is a number in this t byt tensor which represents the score or association between dog and cute
+then what is this little scale factor that's square rooted in the denominator over here this is just one of the contributions from the 2017 paper attention is all you need and they actually introduced this idea of scaled attention so dk or 
+the dimensionality of k is actually just this attention dim the capital a or head size number when you actually divide this q * k transpose we know what that represents that's our t byt tensor but then if you scale it by dividing by the square root of dk 
+you actually end up with a much smoother training process and you won't run into any extreme values or extremely small or large gradients which makes the training process a a lot easier
+one additional thing we're going to do to actually ensure that all our entries in that t byt tensor are between 0 and 1 is we're going to apply the softmax function and the softmax function is kind of like a multi-dimensional sigmoid
+a function that makes anything that's inputed into it be between zero and one and the higher the input is the higher the number is to one ,the lower the input to sigmoid is the closer it is to zero so softmax is pretty similar except 
+it will also make all the entries in your vector that you apply softmax to not only will it make every entry between zero and one but it'll make them sum to one so we're actually going to apply the softmax function to each row of this t byt tensor 
+we're going to apply the softmax function to each row so then every single entry in this tensor will be between 0 and one and each row would also sum to one so if i looked at row for dog and the columns are like dog,is,cute then 
+this actually is going to force all of these numbers to actually sum to one and we like that because then we kind of think of this as a probability we could we know all the probabilities have to sum to one so we can actually think of it as we can think of i j as like the
+probability that the i token and the j token are important to each other
+When we are gonna call softmax function, we will use dim=2 for TxT (for one single sentence) but dim=3 (when we have multiple sentences processing in parallel then, it'll be BxTxT)
+          
+                             see: softmax.png
+
+the forward method is actually going to return the softmax of our scores that's this first factor that i've just underlined here times v which is our value
+so what's actually done in practice is for every single token in a sentence so let's say we have a sentence like dog is cute for every single token for every single ver word not only do we emit a
+query not only do we emit a key but for every single token i'm only drawing it for dog but it's also the case for every other token we're also going to emit something called a value a value vector so if the query is what the token is searching for the key is 
+what information the token actually has the value will also be another learned vector for every token that will be generated and this is what information does the token want to share cuz there might be a whole bunch of information right in the key 
+there's a whole bunch of information that a token has but maybe not all of it is actually relevant to share to share with the other tokens so when we actually do our t by t scores multiplied by you know our input and actually that 
+gets us our aggregated output we actually are going to multiply by v where v is t by a as well just like q and k however every token is going to emitate a vector of size a called the value which represents what information is actually relevant to share         
+
+--> Implementation Details of self_attention_layer:
+torch.trill which is actually short for lower triangular , this is going to give us this tensor over here which actually has you know the future tokens masked out and then we can maybe store that in a variable called premask and after we've applied q * k transpose and 
+we've done our division that divided by square root of dk let's say that is the state of scores at this point but it's before we've applied softmax we're going to actually want to do the masked fill the masked fill on scores before we apply softmax we want to get rid 
+of those those future tokens for every single time step before we apply softmax otherwise then in the softmax if let's say you were to zero out the scores for those for those future indices after applying softmax well then for the ones that are not zeroed out 
+in at every single row right because of how the softmax formula works where it's doing like e to like you know whatever's in the first entry e to whatever's in the second entry even if you later mass those out the denominator was still factoring those in right so 
+you want to erase those future tokens contribution before you apply softmax and the way you'll do that is with scores you will simply call the masked fill method from pietorch and then in the first entry you want to pass in a mask which is just you know a tensor of trs and falses
+so you would say premask which is just this tensor over here equals equals z which would get us you know the trs and falses the trs where we actually want to do the masking and then at those entries you want to pass in negative infinity and the reason 
+you want to pass in negative infinity is cuz e^-infinity =1/(e^infinity)=1/(infinity)=0(means those with masking with be zeroed)
+        
+                see: Implementation_details_of_single_headed_att.png
+
+
+After you get a table(attention pattern) of embeddings by embeddings by their key vs queries or vice versa , you get table of numbers called attention pattern, then you remove the affect of future tokens so they wouldn't effect training by masking them with -infinity
+          see: key_querry_attention_pattern.png
+After, applying softmax to This attention pattern ,it's then put for values of each embedding by every other embedding which would give us the main answer of single head self attention layer
+Basically,you add change (delta E) into original embedding(E) do that word, which would give a refined vector encoding contexually rich meaning for that word
+          
+                              see: value_affect.png
+
+One more thing that value matrix is factored out or seen as two different matrixes ,one is gonna be value down matrix and other can be value up matrix
+The dimenson of key and querry matrix is usually (context length * embedding dim) but the dimension of the value matrix (often denoted as Wv) is typically (d_model: dimensionality of the input embeddings (the size of each word vector before projection))* (the dimensionality of the value vectors, which can be the same as d_model or a different chosen dimension.)
+The dimension of Value matrix can be much more larger than that of both key and querry matrix, but its practically efficient when total value params = total key params + total querry params
+
+--> Cross attention:
+Includes models that  processes two different type of data like text in one language and text in another language ,iN this case, the attention pattern of each key and querry maps on different datasets. One high # in it can show that a word in one language is closer the word in another language.There will be no masking as we don't have to forget future tokens.
+bcz each key and querry maps on different language
+
+-->Attention is all you need:
+THe total # of parameters of attention block in Gpt3 are 58B which is 1/3 of total paramters of model which is like 175B
+
+-->Multi headed attention:
+Gpt3 uses 96 heads in each block (96 time single head,96distinct key and querry matrix, 96 distinct key_querry_attention_pattern,each head has own value matrix used to produce 96 sequences of value vectors).So, for each embedding, you add all the proposed changes(96) of each heads of that embedding into its actual embedding
+so, multi headed is basically running multiple single headed blocks in parallel.
+As presented so far, the value vectors inside an attention head would have the same dimension as the embedding space. This would involve taking weighted sums of these large vectors, weighted by the attention pattern. You can save on computation by instead running the weighted sums on the smaller intermediate outputs produced by the value-down matrices.
+That is, inside each head, use only the value-down matrix to produce a sequence of 128-dimensional vectors. You take weighted sums of these with the attention pattern, meaning the head outputs a single 128- dimensional vector for each position in the context.
+You could then multiply each of those by the head's value-up matrix to get a 12,288- dimensional vector that can be added to the embedding in that position.However! All those up-projections are usually bundled together (more confusion!). For each position in the context, you concatenate all the 128-dimension vectors produced by each head at that position, 
+creating a big vector with length (96*128). Now multiply this by the output matrix .This is mathematically equivalent to applying all the up-projections and adding the results (exercise). Given the chance, ML people love to compress things into a single matrix multiplication, even if it comes at the cost of conceptual clarity.
+In practice,The value down matrix is usually called value matrix (same dimension as key and querry) and value up matrix is usually called output matrix
+          
+                           see: output_and_value.png
+
+so what multi-headed attention is is just doing this normal attention but having a bunch of instances of it operating in parallel and each of them are going to have their own trainable weights biases parameters that are learned through gradient descent and then we're going to take all their outputs and concatenate it and that's what the output of multi-headed
+attentions forward method would be
+
+-->Why Multi headed att yeilds better results than single headed att:
+so why does multi-headed attention actually yield better results in neural networks than just having one single head of attention but it has the same attention dim as the output dimension when we concatenate all our single heads together why does that actually give better results to have these two separate instances of self attention or sometimes four or 
+six or eight each head of attention gets to operate on the input
+separately each the input let's say the embedded input right that is our t by embedding dim so t by embedding dim this is passed in separately in parallel to each head of attention so each head of attention gets to operate and do a bunch of math on that input tensor and since each input or since each head of attention has its own parameters each head can actually 
+learn something different actually what we'll find is after language models are trained each head of attention is actually specialized at learning some component of the language so and actually when they did an analysis of bert and bert is actually a very popular transformer that google uses for all sorts of things such as google translate when 
+they did an analysis on the heads of attention in bert they actually found that one head of attention was specialized at looking at direct objects of verbs direct objects of verbs and another head of attention was specialized at looking at indirect objects of verbs so intuitively we see these large language models these models with billions of parameters 
+as essentially having different heads and different components of its neural network that specialize at learning different parts of a language and kind of a grammar so that's kind of the main benefit of multi-headed attention we have different heads that can each
+specialize in learning something different even if the number of parameters stays the same whether we do one head or many heads
+if i were to do just one head with an attention dim of a equals 64 and the other option is to maybe do eight heads and for each of them set a equal to 8 then the total number of learnable parameters in the neural network hasn't really changed even though we're having multiple heads that are each operating in parallel right each of them gets to process the input
+called embedded and learn parameters albeit each head is learning less parameters than if we just had one giant head so why does this actually yield better results because the general trend is more parameters bigger model the model can learn a more complex relationship and we get better results ,well even though each head has less parameters than if we had one massive head 
+it turns out that each head gets to learn something different because our input x is independently passed in to each head so each head independently gets to learn something different and what we actually find when we see how the heads and those weights get activated based on different inputs is that researchers have found that you'll
+actually have one head that might specialize in focusing on or attending to the next token ,one head that really specializes on focusing or attending to which parts of the input do we pay attention to the direct objects of verbs ,one head might specialize in indirect objects of verbs so we know that for a model to truly understand language,
+it needs to understand grammar ,it needs to understand the structure of the language and how all the words are put together or how all the tokens come together so we actually find that each head specializes in maybe a different grammar rule and this seems to be why this is boosting the performance of the neural network rather than just having one head 
+that's responsible for learning all the rules of the language                 
+
+                    see:Implementation_details_of_multiheaded_att
+
+for now let's pass x let's actually pass x in to all of our heads of self attension  and then what we'll do is we'll just concatenate all of these outputs together the outputs of each head so each head of self attention each of these boxes over here was able to operate independently and process x and obtain a
+different output right cuz each of these layers of the neural network have different if they're separate instances they have different weights right they're learning different keys queries values in those linear layers that make up the single-headed self attention and ultimately they're going to generate something different since again 
+they have different numbers different weights they're trained separately even if they're given the same input so we're going to then concatenate all their outputs together we can call this the concatenated version and that is what we would return from the multi-headed attention forward method     
+
+-->Add in(addand norm layer):
+add actually refers to a concept called skip connections or residual connections
+Let's say,we have some arbitrary layer in a neural network this might be a linear layer, this might be an attention layer and it takes in some input x but instead of just taking the output of the layer as the output we'll also let some portion of x actually completely bypass the layer and it will get added to the output of the layer 
+so in code if we were writing the forward method for some kind of layer and we wanted to incorporate skip connections or residual connections we would actually return layer of x so call the forward method for the layer passing in x but also add x and just to get some intuition as to what this kind of means
+is the model will actually learn the right weights and biases for this layer so that the right proportion of x is either sent through the layer or the right proportion of x is allowed to actually bypass the layer right maybe we don't actually want to transform x based on this layer maybe we want to retain x's original identity and 
+pass most of it or at least incorporate it into our output for this layer so the model can kind of essentially through training ,through the minimizing of the loss ,through the training data figure out how much of x should be passed through and how much of x should be sent through this layer that is some of the intuition for what 
+a skip connection is doing .
+
+-->Why ADD is needed:
+why do we actually need to do this addition because technically shouldn't the model just be able to learn the right weights and biases in this layer to not change x at all , why do we actually have to add x to actually get this to achieve our desired results ,well, there's actually another big benefit of skip connections and 
+it's actually the main reason that they were originally added into these deep neural networks and that has to do with solving the exploding or vanishing gradient problem , exploding or vanishing derivative problem we know that calculating derivatives and gradients during the process of training is very important for gradient descent 
+and minimizing our loss by updating our parameters however something that it can occur with these super deep neural networks that have tons of layers left to right these neural networks have tons of layers is that gradients can either become super big or super small and if we recall our update rule for gradient descent we know that 
+for any weight or parameter in a neural network the new weight is actually just equal to the old weight minus alpha the learning rate times the value of the derivative or gradient and if this derivative value if it's too small if it's vanishing and going basically to zero then this term is basically going to zero and 
+the new weight is almost the same as the old weight so we essentially were not able to update the parameter at all similarly if this value of the derivative is way too large then the new weight is going to be drastically different than the old weight and that won't be great for the neural network's performance so 
+we would like to mitigate this problem in some way or another and turns out that this simple addition does end up reducing that problem because if we recall from calculus if you have some function f of x and it's just the sum of two other functions g of x plus h of x when you're actually taking the derivative you can actually 
+just say that f prime of x is g prime of x plus h prime of x so when the model is actually calculating all the derivatives when we call loss.backward in pytorch, the model will actually have an additive term when calculating the necessary gradients for this layer and that actually will significantly help with reducing the 
+problem of the exploding and vanishing gradient the fact that we're doing an addition instead of a multiplication as that doesn't drastically compound and you know either drastically increase or drastically decrease the value of the gradients as the network gets deeper and deeper so the short answer is that 
+incorporating some kind of addition seems to actually keep the gradient values from either getting too big or too small and researchers have found this time and time again with neural networks and that is why skip and residual connections are included in the transformer 
+
+                              see:Add.png
+
+-->Norm in(addand norm layer):              
+so the norm in the transformer block actually refers to something called layer normalization and this is kind of a module of its own in pytorch that you can instantiate by saying nn.layerNorm and passing in our case the embedding dimension and when you tell a layerNorm that you're passing in the embedding dimension that is the 
+dimension along which we will normalize so,When You Write: nn.LayerNorm(embedding_dim) , You're telling PyTorch: “For each token (i.e., each row vector), normalize across its features — i.e., its embedding dimension — which is of size embedding_dim.” So: You are not normalizing across time steps. You are not normalizing across batches. 
+You are normalizing across the last dimension (features per token). Example: If your input is shaped like [B, T, E], Then nn.LayerNorm(E) will normalize each of the [E] values for every [B, T] position, independently. That means for every token, it will compute: 
+                     normalized_token = (token - mean(token)) / std(token)
+And apply learnable scale (γ) and bias (β) parameters (unless elementwise_affine=False is passed).
+
+so what does it actually mean to normalize in statistics ,it essentially means to recenter our data so that it all revolves around the mean so it will kind of look like a bell curve and the way that we can take a set of data points and make it have this kind of shape where the mean is the most probable data point the way we normalize data 
+is for every single data point x you actually just subtract out whatever the mean is and you divide by the standard deviation and that kind of reset your data around the mean and makes it look like that however this would kind of destroy the whole point of a neural network if there was nothing learnable or trainable about this 
+it's just a direct formula for this layer that restricts the output to be having this shape so to still have the neural network have some sort of learning capacity we go ahead and multiply for every data point (this minus mean divided by standard deviation) we multiply by some other number gamma and add some other number beta and 
+these two will actually be adjustable and learnable across the iterations of gradient descent that we perform 
+
+-->Why Norm is added?
+but the question should be why does this actually improve the performance of neural networks it has been found to actually increase the training speed of neural networks and make deep learning deep learning far more effective and researchers are actually still not entirely sure why normalization tends to improve the training 
+of neural networks but their their current hypothesis is that we know that the neural network starts off with totally random parameters right totally random weights and to some extent our data could be random as well but if during training, then there's drastic shift in the nature of the data meaning it's the two main attributes 
+that characterize data, the mean and the standard deviation if this kind of changes drastically in random ways ,then the neural network training tends to be really slow and just not as effective in terms of convergence so by kind of centering it around the mean , around the standard deviation  and still by adding in some learnable 
+parameters so this isn't too restrictive, researchers have found that the performance of the neural network does increase and that's why layer normalization is used in a transformer
+what data we're actually normalizing so to feed into this layer we would have something that's t by e right t by e where t is our time step or length of some kind of sequence like our sentence say the number of words in a sentence and e is something called the embedding dimension so you can think of that as the 
+size of the feature vector for every token so let's say for every word we had a vector that encapsulates the the meaning of that word and that was our embedding vector of size e or of size embedding dim when we say we are going to do layer normalization it means we are going to normalize the actual feature not necessarily 
+the time steps or the batch dimension if we had say multiple examples being fed in and we had batch by t by e but we're actually going to normalize along the embedding dimension so for every single time step we have a vector and we're going to go ahead and normalize along that dimension
+
+                               see: Norm.png
+
+-->Masked Multi Headed attention:
+the model is being fed in so we have the sentence write me a poem so we'll quickly explain what the masked part means because this model is always predicting the next token in the sequence the model actually does not get to look at future tokens so when the model is fed in a sentence like this there's actually a few training examples 
+within here that the model can see the first one is that given write me comes next the next one is that given write me a should come next and finally the model sees that given write me a poem should come next but the masked part actually means that when the model is making its next token prediction ,you know given all the tokens before the model doesn't
+actually get to see what comes next so if the model was tasked with predicting poem and the model had the context of write to me a in our code in our tensors or our matrices we would actually mask out the word poem so that the model cannot see the answer before it's actually made its prediction so that's what the masked part means
+the multi-headed attention part which is definitely far more significant so when the model receives a complicated instruction like this the model needs to know what part of the input to pay most attention to cuz not all words in this input are equally as important and moreover there are actually relationships with between every pair of tokens 
+so we know that this pair of tokens write and poem there's a strong relationship between them because what are we writing we're writing a poem the model needs to pay attention to that we're not writing a book we're not writing a script we're not writing a movie the model needs to know what to write so this is clearly an important pair of tokens 
+so what attention does ,it actually let these tokens talk to each other and every single pair of tokens will be considered until the model has actually figured out which to pair of tokens are important and which ones aren't important and then the model is actually able to generate some sort of new feature vector some sort of new feature vector 
+instead of the embeddings that were initially passed in the model is now able to know the important parts of the input to focus on so attention if we had to summarize it attention is a communication mechanism attential attention at a high level is the model letting the tokens talk to each other until the right relationships between them are learned 
+and the multi-headed component actually refers to the fact that this attention process i just described will actually have the model perform at the attention layer on the same input so we have the same input going into this attention head as well as maybe further attention heads we might have three four five or six and so on and 
+what the model will do is it will actually just go ahead and concatenate the output of all the attention heads and pass that in to the next layer of the neural network so attention is a highly powerful mechanism for the model to gain a deeper understanding of the language and because it's so powerful we actually want to have many different heads 
+that each learn their own weights and each operate on the input this head of attention operates on the entire input and it actually gets to learn its own weights and biases the entire input is also passed in to this head of attention and this set of attention learns its own set of parameters so by exploiting multi-headed attention the
+model is actually able to learn and understand language at a far deeper level
+
+-->Feed Foward and why embedded after Attention:
+feed forward is just a traditional or vanilla neural network, it's a vanilla neural network that means there won't be any attention in this neural network, there won't be anything complicated except linear layers with  arbitrary number of nodes or neurons as well as we'll have some nonlinear activations
+like the relu activation and we may have dropout as well but it is still a traditional fully connected neural network with when we do toss in some nonlinearities and some dropout and it turns out that first having the attention and then having this linear neural network that essentially just does a bunch of computation a bunch of weights biases 
+and a bunch of matrix multiplication that essentially is remembered just doing linear regression it turns out that first having computation  first having the communication in the attention layers and then after these tokens have paired up and essentially the model has figured out which tokens are relevant to focus 
+on then doing a bunch of computation essentially a very complex mathematical formula figuring out those weights and biases after this is actually highly effective for the model's performance and the model's ability to ultimately predict the next token 
+A feedforward neural network, particularly a multilayer perceptron (MLP) with non-linear activation functions like ReLU, is colloquially referred to as a "vanilla" neural network.
+-->Decoder(Linear & Softmax):
+so the last part of the transformer architecture and specifically the decoder is actually the linear and softmax components and if you're coding up the transformer block you won't have to worry about this yet but you absolutely will once you actually code the gpt class so the whole point of that final linear layer in softmax is to actually 
+get an interpretable prediction so for that linear layer it will actually look something like this it would be nn.linear of the attention dim so attention dim as that's kind of the new dimension(input) after we've done all of this attention after the embeddings so it would be the attention dim but that's actually not the most important thing 
+the output features or the number of neurons in this layer should actually be vocab size and the reason for that is for every single time step that this model receives in every single token in the input sequence the model wants to predict what token comes next and that's going to be a bunch of probabilities right so 
+we want to get a vector of size vocab size where we can interpret each number in this vector each entry in this vector as the probability that the token or character or word corresponding to that index is going to come next in the sequence and then to squash those numbers between 0 and one and actually make them all add up to one so 
+we can interpret them as a series of probabilities that's what the softmax function is for and that will be the decoder transformer 
+
+-->transformer block:
+we're going to use this transformer block class and this transformer block class that we're about to write is going to make use of the multi-headed attention class that you've previously written so the transformer block is actually this gray rectangular block that is repeated nx times in this diagram and this itself is a 
+giant neural network layer that we're going to use in the gpt class ,transformer block class is going to subclass nn module and it's going to have a forward method because we're going to pass some sort of input in to the transformer block and get some sort of output and it needs to actually return a tensor 
+that is b by t by D ,where b is our context length and D is model dim let's just call that capital d .
+Size/shape : attention_dim = embedding_dim = model_dim
+2 different LayerNorm Instances will be defined in first and second part so that they can learn different parameters during training independently
+
+-->First part of transformer block:
+we have our input to the transformer block x which is actually going to pass  through layer norm and then the output of layer norm goes into multi-headed self attention but then we can actually add the unchanged x all the way back to the output of multi-headed self attention and then this is the output of at least the first part of the transformer block 
+.adding x to the output over here is that having some sort of additive term instead of having only multiplication in this neural network having some sort of additive term seems to actually smooth out our gradients and actually slightly mitigate the exploding and vanishing gradient problem during training
+
+                             see:First_part_of_Transblock.png
+
+-->Second part of transformer block:
+ so then the output of this first part of the transformer block over here is then passed into the second part of the transformer block over here and again we're actually going to apply the norm before the feed forward even though in the original diagram it actually says feed forward and then norm so we're going to do norm and then feed forward and 
+ then add this component which came out of the first part of the transformer block , feed forward component of the neural network well this is also called a multi-layer perceptron because we're going to have multiple linear layers and then nonlinearities  ,it's also called a vanilla or just a standard neural network well  if the attention component 
+ of the neural network over here is actually our communication mechanism this is where we let the tokens talk to each other again ,then the feed forward part of the neural network this is actually our computation mechanism this is where we have a bunch of neurons in each linear layer of this feed forward neural network 
+ that are learning a bunch of weights biases w1 * x1 + w2 * x2 doing a ton of linear regression so after we've let the tokens talk to each other after we've let the tokens do their communication we want to let the tokens have some time as they pass through these linear layers and of course nonlinearities like relu as well we want to let the tokens 
+ actually do computation and this is all going to factor in to the model's prediction in the final layer or two where the model predicts the next token
+
+                             see:Second_part_of_Transblock.png
+
+after the model has done all this communication all this computation in this transformer block and then in the gpt class by the way the transformer block is going to be repeated some number of times so we would take the output of the transformer block pass itback in and do this some number of times maybe like six times maybe 12 times
+
+
+-->Why Vocab_size output in linear layer at end of gpt class:
+Before passing in input to linear layer, we first do an additional LayerNorm after transforer blocks and then linear layer and then softmax.
+
+model dim this should make sense given the dimensions used in the transformer block and then we're actually going to project to a dimension of vocab size so this linear layer has vocab size different neurons we're going to have a essentially vocab sized different numbers for every single token at every single time step and the reason 
+we have that many different numbers being predicted is cuz each number is going to correspond to a probability or the chance that that corresponding token comes next and we know we have exactly this many different tokens in our vocabulary so we're going to have the possibility that any one of them could
+come next in the sequence as this model is learning to predict the next token so we're actually going to need to have that many different numbers to get the full prediction
+
+-->Softmax and loss calculation and optiimizer:
+we know we had a b byt input a batch of sequences each of length capital t and then you know the model ,we have b by t labels because we know that for every context text or all the sequences of tokens the model is trying to predict the next token so the correct answer or the labels is just actually the tokens kind of offset by one 
+and then our output our output is b by t by v for every single batch and then for every single token every single time step in this sequence then we have a vector of size v the vocabulary size which we're thinking of as a list of probabilities the softmax layer over here is going to make all the numbers between zero and one 
+so they're actually can be interpreted as probabilities we have a bunch of probabilities for which token's going to come next in the sequence that's the model's prediction and then the loss or error is going to be calculated using two things the model's prediction of the probability for what token came next again 
+that is in this vector of size v and then we actually know what token comes next that's in our labels ,the labels were extracted from the raw data set and then that is used to calculate the loss we dried the loss down during training using an optimizer and following the gradient descent algorithm and in the end,
+we actually have a model that can predict the next token really well
+use nn.softmax(dim=-1) at the end bcz B,T,V we wanna use sfotmax on Vocab_size output which is real_output
+
+-->Embedding layers in Gpt:
+you would actually just be passing in the raw input our b by t input that's what you would pass in to the actual token embedding layer.
+so why don't we just start with the embedding layers so we're going to actually have two embedding layers ,one of them is called the token embedding layer and the other is called the positional embedding layer ,so specifically for the token embedding layer ,the goal is to learn or train a feature vector for every single token in 
+our vocabulary, so let's say we are doing a word level language model so we can think of this embedding layer is actually a lookup table and that lookup table which will be of size vocab size where vocab size is actually the number of different words that this model can recognize so maybe the total number of unique words 
+in our body of text that we're training the model on vocab size by embedding dim where embedding dim is actually our choice and the higher that we make embedding dim the more complex of a relationship the model can learn, next is the positional embedding, so this is also another lookup table except this one is 
+actually going to be context length by embedding dim ,and  chat gpt has a context length of 128,000 specifically gpt4 and context length is essentially how many tokens back so when you're talking to this these language models how many tokens back in the sequence can the model read cuz at some point it has to essentially 
+cut off and say okay the model's not going to factor in anything that was this far back but how far back can the model actually read that is the context length and similarly during training when we are feeding in batches and batches of training examples ,we will actually be feeding in b by t tensors where b is the batch size and 
+t is the length of each say sentence in this training batch and t will actually be the context length during training so the positional embedding is essentially another lookup table that has context length rows in it so this would be from (zero) to (context length minus one) in terms of the rows or indices of that table and 
+the number of columns or the size of each row is the embedding dimension where we are essentially going to learn a vector of size embedding dim for every single possible position,but what are we actually passing in to the positional embedding layer cuz we know ,for the token embedding layer we're literally just going to pass in the 
+input tokens themselves and the embedding layer is actually going to then look up the feature vector for each token because we have vocab size number of rows where each row corresponds to a token in our vocabulary, however if the rows here are going from zero to context length minus one ,then that's actually corresponding to 
+positions or indices in a sequence if we sent in write me a poem we would say that write is at position zero me is at position one a is at position two and so on so to pass in what are we going to pass into the forward method for the positional embedding layer we're actually going to pass in the following torch.arrange(T) where 
+torch.arrange actually generates a tensor of size t that is sorted in order where its values go from zero to capital t minus one and that's how we would essentially want to index our embedding lookup table and once we have the token embeddings generated once we have the positional embeddings generated ,
+we simply go ahead and add them in we just add those two tensors together before we'd feed them in to the transformer block.
+
+
+-->Word-mappings & Positions:
+we need the model to learn some sort of deeper representation that encapsulates the meaning of each word ideally the model would learn a vector that represents the meaning of each word and we call those embedding vectors and they're actually trainable and learnable through gradient descent so we can imagine it being a lookup table 
+where we're given a given token ,we would actually look up the corresponding row for that token and the all the columns that are associated with that given row would actually just be the embedding vector or feature vector(v) that is learned for that word so the number of rows in this table should just be the vocabulary size capital v 
+and this is because for that many tokens we want to learn the feature vector for and the number of columns in this lookup table should just be the model dimensionality(model_dim) since we know that is our dimensionality of our embeddings and that's how many features we would essentially have to learn the meaning of each word 
+The way we instantiate token embedding layer in Gpt class is using nn.Embedding(# of rows(v), # of columns(model_dim))
+
+if we have something like poem me write a, if we jumble the order the meaning is completely lost so we need the model to actually learn embeddings for each token's position as well which means we're going to have another lookup table where the number of rows is just capital t or the context length so the model can learn a 
+feature vector again of size model dim for each token position all the way from zero to capital t minus one so then when we actually call call this layer in the forward method what are we passing in to the forward method of our positional embedding layer because this is going to be a separate nn.Embedding instance and 
+what we would actually pass in is simply a vector of size capital t that simply has all the numbers from zero to capital t minus one since that would essentially pluck out the rows of the table for each position in our sequential input string and the way you can actually generate that tensor is using torch.arrange of t and 
+this is the tensor that you would want to pass in in the forward method of the gpt class when you're calling the embedding positional embedding layer
+
+The position and order of tokens is very important when teaching model about speeches.so,The rows in position embedding are T and columns are model_dim 
+then in the forward method what we're going to do is we're just going to add the positional and token embeddings together and then we're going to pass those in to a series of transformer blocks
+when it comes to teaching computers to understand speech the order of the tokens is actually really important the positions of each token in this sentence this token is at the zeroth index this token is at the one index and so on if we have something like poem me write a if we jumble the order the meaning is completely lost so we need the model to
+actually learn embeddings for each token's position as well which means we're going to have another lookup table where the number of rows is just capital t or the context length so the model can learn a feature vector again of size model dim(column) for each token position all the way from zero to capital t minus one 
+so then when we actually call  this layer in the forward method what are we passing in to the forward method of our positional embedding layer because this is going to be a separate nn.Embedding instance and what we would actually pass in is simply a vector of size capital t that simply has all the numbers from zero to capital t minus one since 
+that would essentially pluck out the rows of the table for each position in our sequential input string and the way you can actually generate that tensor is using torch range it's
+going to arrange numbers from zero to the whatever the input is to this function minus one so you would just put in torch.arrange of t and this is the tensor that you would want to pass in in the forward method of the gpt class when you're calling the positional embedding layer
+
+-->Transformer blocks:
+The toal_embeding(token+position) are going to be input to forward method of Blocks(which is object of nn.sequential and that nn.sequential will run like num_block times and output of 1st block into 2nd block)
+in the gpt class you're going to actually notice this nx in the diagram and that actually indicates that we're going to have many blocks in sequence so what actually occurs in a transformer is the output of the transformer block so the output over here is actually passed back in to the transformer block n number of times 
+where n is essentially the number of transformer blocks and this is predetermined beforehand obviously as we increase the number of blocks the model gets more and more complex and the model can learn a more and more complex relationship with more parameters but to actually implement this into code we're
+actually going to use something called nnn.sequential ,so in your gpt class in the constructor you will define something called nnn.sequential and you can actually treat this just like a python list you can call.append on an nn.sequential with the only restriction that the only thing this list can contain is other neural network layers 
+and then once you actually call the forward method of the nn.sequential object, it will actually call the forward method of every single block that was passed in to this list in order from left to right so that entire process of passing in the output of one transformer block all the way back in would be handled by that line of code
+
+-->Gpt class :
+                                   see:gpt_class.png
+
+                                   see:gpt_example.png
+
+so we know the input to the forward method is actually supposed to be b by t because we train these neural networks in batches so we'll have many sequences passed in in parallel and that is how many we're passing in in parallel is the batch size capital b and that is just one here there's only one sentence but based on 
+like the shape of this 2d list or 2d tensor we can tell that there is still an additional batch dimension going on there and then t so during training ,t is actually just the context length so we can see that there were five tokens passed in with great power comes great and then the model is supposed to make predictions for the next token 
+given all the training examples within this sequence of tokens so given the context of with the model will predict what comes next given the context of with great the model will predict what comes next and so on all the way until the model has the entire input with great power comes great and then the model predict what comes next            
+,why would we actually have necessarily a capital t basically how long the sequence is greater than five because the model can't factor in context length is the greatest amount of tokens the model can even factor in to its next token prediction right so with great power comes great that's already five tokens in a row the model 
+it wouldn't even really be able to factor anything else more than five tokens in it would have to start if we added like another token here the model would then have to not factor in the first token to actually predict you know what comes next                        
+,so let's take a look at this dictionary now so we're going to assume that the model is consistently using this internal mapping so we know models don't actually take in strings right each of these tokens needs to be converted to an integer that's how we actually feed in strings into models for natural language processing and
+any model's mapping is pretty arbitrary as long as it's consistent that's all that matters ,so we can say with maps to zero ,great maps to one ,power maps to two and so on so in the final layer the final layer of the neural network where we have vocab size or capital v neurons ,we'll say that the zero neuron is essentially 
+corresponding to word with ,the first neuron is corresponding to word great and so on all the way until the v minus oneth neuron okay so the returned output first let's explain the shape of it b t by v so we know that batch size was one as we saw in the input so it makes sense that this whole 2d tensor or this whole 2d array over here 
+is actually wrapped in another one we can see that there's another pair of brackets over here ,so the batch size equals 1 is still maintained however for that example for the first element in the batch dimension or for every element in the batch dimension ,we get a capital t by v tensor and that's because for every single time step ,
+context or training example ,the model is generating a vector of size capital v and the reason we have a vector of size capital v is because that is essentially a list of probabilities ,a probability for every possible token that could come next so we'll actually see that the first row in this output tensor is actually the 
+model's probability output, it's vector of size v we can see that there's v columns here right v equals 5,5unique words
+so,the first row in this output tensor is the model's prediction which is a vector of size v for the first context and the first context is just looking at width and then the second row and so on.when given word with, the model is trying to predict what comes next we know power comes next but the model doesn't actually get to see that 
+cuz we are using masked self attention( it doesn't get to see the future tokens) 
+
+-->Words prediction:
+we can actually see that over here the model is saying that there's an 80% chance that great comes next if you just are looking at the word with and there seems to be a 10% chance that the word power comes next ,and there's a 10% chance that responsibility comes next so that would be like with responsibility andthat seems reasonable too 
+but thankfully the model is still saying that we have an 80% chance that great essentially token number one ,the one column we can actually see that there's an 80% chance that great comes next given the context of with
+And,  for the second row(the second training example) is the context 'with great' and hopefully the model has a pretty good does a pretty good job of predicting that 'power' comes next so we say there's a 90% chance for the third column and a 10% chance for the last column so the third column here is corresponding to well 012 using zero indexing 
+right and that corresponds to power so you can see that the model is saying that with a context of with great there's a 90% chance that power comes next ,the final column so that corresponds to token id number four is responsibility so does that make sense with great responsibility yeah that that could be reasonable that seems like a 
+logical sentence in english so their model is still saying there's a 10% chance we can say there's a 10% chance that responsibility comes next but the model is still fairly confident
+
+                                   see:word_chances.png
+
+
+After-Math:
+Initially, when we say model to start generating text, start-token=0 but when one word is generated , input would be B,1,V , when its run twice, input to model would be B,2,V and so on.Inputs to Model for generating text will be :
+
+                                   see:make_gpt_talk_back.png
+                                   see:input_example.png
+
+How to choose next token:
+One option is to choose token with max prob but it leads to boring results , so we are going to use a func torch.Multinomial()  which is sampling ,, 
+we still want less probability tokens to be choosen sometimes  instead of calling torch.max(). In the next iteration , we would have concatenated generated token with input to the model. We get more interesting texts when we sometimes choose words with lower proababilities as well bcz it can allow model to go down different path to generate something different
+
