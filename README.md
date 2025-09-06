@@ -27,7 +27,9 @@ GPT-implementation_from_scratch/
 │   ├── doc_up.py             # Read from .docx
 │   └── pdf_up.py             # Read from .pdf
 │── Conversation.docx         # Training data (sample conversation text)
-│── dcmachinebook.pdf         # Training data (DC Machines book, ~17k chars until Chapter 1)
+│── dcmachinebook.pdf         # Training data(DC Machines book, ~17k chars until ch1)
+│── requirements.txt          # Dependencies of this project
+│── wrd_trained_model.pkl     # Pretrained Model (for dat until ch1)
 │── README.md                 # Project documentation
 ```
 
@@ -75,7 +77,8 @@ This will:
 
 Text is generated using the `Solution.generate()` function with parameters:  
 
-- `context` → The seed text (e.g., `"AI in healthcare"`)  
+- `context` → The seed text (e.g., `"dc machine is"`)  
+- `new_chars` → How many characters/wprds to generate
 - `context_length` → How many tokens the model can look back  
 - `temperature` → Controls creativity (higher = more random)  
 - `top_k` → Sample only from top-k most likely words  
@@ -83,7 +86,7 @@ Text is generated using the `Solution.generate()` function with parameters:
 Example (word-level):  
 
 ```python
-seed = "AI in healthcare"
+seed = "dc machine is" # this will be the starting point of model
 encoded_seed = [stoi[w] for w in seed.split() if w in stoi]
 start_context = torch.tensor([encoded_seed], dtype=torch.long).to(device)
 
@@ -130,4 +133,5 @@ git clone https://github.com/moabs-dev/GPT-implementation_from_scratch
 
 ---
 
-✨ Enjoy exploring how GPT works under the hood!  
+✨ Enjoy exploring how GPT works under the hood! 
+Explanation of how attention works in Gpt class is explained in folder `explaining`
