@@ -133,5 +133,13 @@ git clone https://github.com/moabs-dev/GPT-implementation_from_scratch
 
 ---
 
+---
+
+## License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+ 
+---
+
 ✨ Enjoy exploring how GPT works under the hood! 
 Explanation of how attention works in Gpt class is explained in folder `explaining`
