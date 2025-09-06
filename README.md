@@ -39,6 +39,8 @@ Install dependencies:
 
 ```bash
 pip install torch torchtyping python-docx PyMuPDF
+OR
+pip install -r requirements.txt
 ```
 
 📌 Notes:  
@@ -48,14 +50,6 @@ pip install torch torchtyping python-docx PyMuPDF
 - `PyMuPDF` (`pip install PyMuPDF`) → Read `.pdf` files (via `import fitz`)  
 - Standard libraries (`os`, etc.) are already included in Python.  
 
-👉 A `requirements.txt` can be created with:  
-
-```txt
-torch
-torchtyping
-python-docx
-PyMuPDF
-```
 
 ---
 
