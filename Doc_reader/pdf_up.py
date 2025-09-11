@@ -12,4 +12,5 @@ def read_pdf(file_path,length):
     text=text_data[:length]
     return text
 
+# # sample Example:
 #print(read_pdf('dc machine book.pdf',1002))
