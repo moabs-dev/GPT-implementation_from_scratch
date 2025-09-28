@@ -4,7 +4,7 @@ import torchtyping
 from torchtyping import TensorType
 import typing
 
-class TransformerBlock(nn.Module):
+class TransformerBlock(nn.Module): # All other classes could also be in outside of this class and still be called
     def __init__(self,model_dim:int,num_heads:int):
         super.__init__()
         torch.manual_seed(0) #below, att_dim=embd_dim=model_dim
